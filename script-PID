@@ -1,0 +1,163 @@
+1- Calculo del angulo a partir de la posici?n del Carro y de la Carga
+--  2- Filtro de media movil ponderada en el calculo de las velocidades
+--  3- Reajuste de los parametros del controlador
+
+function sysCall_init()
+    -- do some initialization here
+    motor_carro  = sim.getObjectHandle('MotorCarro')
+    motor_puente = sim.getObjectHandle("MotorPuente")
+    pivote = sim.getObjectHandle('Pivote')
+    carro  = sim.getObjectHandle('Carro')
+    carga  = sim.getObjectHandle('Carga')
+    puente  = sim.getObjectHandle('Puente')
+    
+    
+    incF    = 0.25  -- incremento en Newtons
+    maxFy   = 3     -- feurza m?xima aplicable por el motor_carro 
+    maxFx   = 50    -- fuerza maxima aplicable por el motor_puente
+    
+    fuerzaY = 0   
+    posY    = sim.getJointPosition(motor_carro)       -- posici?n Y actual
+    posY_   = posY                                    -- posici?n Y anterior
+    velY    = 0                                       -- velocidad del carro
+    maxVelY = 1                                       -- consigna de velocidad carro
+    
+    fuerzaX = 0
+    posX    = sim.getJointPosition(motor_puente)      -- posici?n X actual
+    posX_   = posX                                    -- posici?n X anterior
+    velX    = 0                                       -- velocidad del puente
+    maxVelX = 1.5                                       -- consigna velocidad puente
+    
+    
+    posMatrix={}
+    posTable = sim.getJointMatrix(pivote, posMatrix)
+    euler = sim.getEulerAnglesFromMatrix(posTable)
+    angX  = euler[1]                                  -- ?ngulo actual beta
+    angX_ = angX                                      -- ?ngulo anterior
+    vangX = 0                                         -- velocidad angular beta de la carge
+    angY  = euler[2]                                  -- ?ngulo actual alfa
+    angY_ = angY                                      -- ?ngulo anterior
+    vangY = 0                                         -- velocidad angular alfa
+    
+    
+    
+    -- consignas de posicion
+    Ts      = sim.getSimulationTimeStep()
+    xRef    = 0
+    yRef    = 0
+    incX   = 0.25
+    incY   = 0.25
+    
+end
+
+function sysCall_actuation()
+    -- put your actuation code here
+    message,auxiliaryData=sim.getSimulatorMessage()
+
+    while message~=-1 do
+        print(auxiliaryData[1]) -- muestra las entradas del teclado
+        
+        if (message==sim.message_keypress) then
+            if (auxiliaryData[1]==32) then           -- space bar
+                xRef    = 0
+                yRef    = 0
+                incX   = 0.25
+                incY   = 0.25
+            end
+            
+            if (auxiliaryData[1]==43) then           -- "+" key
+                incY = 1.5*incY
+                incX = 1.5*incX
+            end
+            
+            if (auxiliaryData[1]==45) then           -- "-" key
+                incY = incY/1.5
+                incX = incX/1.5
+            end
+            
+            if (auxiliaryData[1]==2007) then         -- up key
+                xRef = xRef+incX
+                if xRef>2.2 then xRef = 2.2 end
+            end
+            
+            if (auxiliaryData[1]==2008) then         -- down key
+                xRef = xRef-incX
+                if xRef<-2.2 then xRef = -2.2 end
+            end
+            
+            if (auxiliaryData[1]==2009) then         -- left key
+                yRef = yRef-incY
+                if yRef<-1 then yRef = -1 end
+            end
+            
+            if (auxiliaryData[1]==2010) then         -- right key
+                yRef = yRef+incY
+                if yRef>1 then yRef = 1 end            
+            end
+        end
+        message,auxiliaryData=sim.getSimulatorMessage()
+    end
+    
+   poscarro = sim.getObjectPosition(carro,-1)
+   posY  = poscarro[2]                   -- posicion actual del carro
+   velY  = 0.5*velY+0.5*(posY-posY_)/Ts  -- velocidad un poco filtrada
+   posY_ = posY
+   
+   pospuente = sim.getObjectPosition(puente, -1)
+   posX  = pospuente[1]                   -- posicion actual del puente
+   velX  = 0.5*velX + 0.5*(posX-posX_)/Ts   -- velocidad un poco filtrada
+   posX_ = posX
+   
+   -- Angulo a partir de la poscion de la carga respecto al carro
+   poscarga = sim.getObjectPosition(carga,-1)
+   angX = math.atan((poscarga[2]-poscarro[2])/(poscarro[3]-poscarga[3]))
+   vangX = 0.5*velY+0.5*(angX-angX_)/Ts
+   angX_ = angX
+   
+   -- Angulo a partir de la poscion de la carga respecto al carro
+   poscarga = sim.getObjectPosition(carga,-1)
+   angY = math.atan((poscarga[2]-pospuente[2])/(pospuente[3]-poscarga[3]))
+   vangY = 0.5*velX+0.5*(angY-angY_)/Ts
+   angY_ = angY
+   
+   -- coeficientes del controlador reclaculados Y
+   fuerzaY = 10*(yRef-posY) +5*(-velY) -2.5*(-angX) +3*(-vangX)
+      
+   if fuerzaY<-maxFy then fuerzaY=-maxFy end
+   if fuerzaY>maxFy   then fuerzaY= maxFy end
+    
+   if fuerzaY>=0 then 
+       sim.setJointTargetVelocity(motor_carro,maxVelY)
+       sim.setJointMaxForce(motor_carro,fuerzaY)
+   else
+       sim.setJointTargetVelocity(motor_carro,-maxVelY)
+       sim.setJointMaxForce(motor_carro,-fuerzaY)
+   
+   -- coeficientes del controlador reclaculados X   
+   fuerzaX = 100*(xRef-posX) +120*(-velX) -2.5*(-angY) +40*(-vangY)
+   
+   if fuerzaX<-maxFx then fuerzaX=-maxFx end
+   if fuerzaX>maxFx   then fuerzaX= maxFx end
+    
+   if fuerzaX>=0 then 
+       sim.setJointTargetVelocity(motor_puente,maxVelX)
+       sim.setJointMaxForce(motor_puente,fuerzaX)
+   else
+       sim.setJointTargetVelocity(motor_puente,-maxVelX)
+       sim.setJointMaxForce(motor_puente,-fuerzaX)
+   end
+     
+   
+    
+end
+
+function sysCall_sensing()
+    -- put your sensing code here
+end
+
+function sysCall_cleanup()
+    -- do some clean-up here
+end
+
+-- See the user manual or the available code snippets for additional callback functions and details
+end
