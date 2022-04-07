@@ -1,3 +1,3 @@
 # Mecatronica
-Puente grua control PID
-Celda mecanizado en TwinCAt
+* Puente grua control PID
+* Celda mecanizado en TwinCAt
